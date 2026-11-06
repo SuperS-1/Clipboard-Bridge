@@ -24,7 +24,7 @@ Configuration via environment variables (all optional):
     CLIPBOARD_ACCOUNTS_FILE path to an accounts file
     CLIPBOARD_SESSION_DAYS  remembered web login      (default 3650)
     CLIPBOARD_MAX_HISTORY   max history items        (default 200)
-    CLIPBOARD_MAX_UPLOAD_MB max request size in MB   (default 64)
+    CLIPBOARD_MAX_UPLOAD_MB max request size in MB   (default 1024)
     CLIPBOARD_DATA_DIR      data folder              (default ./clipboard_data)
 
 Example with a token (PowerShell):
@@ -74,7 +74,7 @@ PORT = _env_int("CLIPBOARD_PORT", 5088, 1, 65535)
 AUTH_TOKEN = os.environ.get("CLIPBOARD_TOKEN", "").strip()      # API token for the GENERAL/shared space
 WEB_PASSWORD = os.environ.get("CLIPBOARD_PASSWORD", "").strip()  # web password for the GENERAL space
 MAX_HISTORY = _env_int("CLIPBOARD_MAX_HISTORY", 200, 1, 100000)
-MAX_UPLOAD_MB = _env_int("CLIPBOARD_MAX_UPLOAD_MB", 64, 1, 1024)
+MAX_UPLOAD_MB = _env_int("CLIPBOARD_MAX_UPLOAD_MB", 1024, 1, 1024)
 _ACCOUNT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 
 

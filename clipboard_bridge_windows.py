@@ -173,7 +173,8 @@ DEFAULT_CONFIG = {
     "server_ip": "127.0.0.1",  # external server address (client mode)
     "server_port": 5088,
     "host_port": 5088,         # port this PC listens on in server mode
-    "host_max_upload_mb": 256, # compressed and expanded limit for local server uploads
+    "host_max_upload_mb": 1024, # compressed and expanded limit for local server uploads
+    "received_files_dir": RECEIVED_DIR,
     "token": "",
     "username": "",            # server account name (empty = shared space)
     "password": "",            # server account password
@@ -633,6 +634,10 @@ def save_config(cfg):
 
 
 config = load_config()
+
+def get_received_dir():
+    path = config.get("received_files_dir") or RECEIVED_DIR
+    return os.path.abspath(os.path.expandvars(os.path.expanduser(str(path))))
 
 
 def _request_settings():
@@ -1113,7 +1118,8 @@ def _take_local_upload_marker():
 
 
 def save_received(filename, raw):
-    os.makedirs(RECEIVED_DIR, exist_ok=True)
+    received_dir = get_received_dir()
+    os.makedirs(received_dir, exist_ok=True)
     name = os.path.basename(str(filename or "file.bin").replace("\\", "/"))
     name = "".join("_" if c in '<>:"/\\|?*' or ord(c) < 32 else c for c in name)
     name = name.strip(" .") or "file.bin"
@@ -1126,14 +1132,14 @@ def save_received(filename, raw):
         name = "_" + name
         stem, ext = os.path.splitext(name)
     # Leave room for the download directory and collision suffix on Windows.
-    budget = max(40, min(180, 240 - len(RECEIVED_DIR.encode("utf-16-le")) // 2))
+    budget = max(40, min(180, 240 - len(received_dir.encode("utf-16-le")) // 2))
     ext = ext.encode("utf-16-le")[:64].decode("utf-16-le", errors="ignore")
     stem_budget = max(8, budget - len(ext.encode("utf-16-le")) // 2 - 16)
     stem = stem.encode("utf-16-le")[:stem_budget * 2].decode("utf-16-le", errors="ignore")
     i = 0
     while True:
         suffix = f" ({i})" if i else ""
-        dest = os.path.join(RECEIVED_DIR, f"{stem}{suffix}{ext}")
+        dest = os.path.join(received_dir, f"{stem}{suffix}{ext}")
         try:
             stream = open(dest, "xb")
         except FileExistsError:
@@ -1152,15 +1158,16 @@ def save_received(filename, raw):
 
 
 def reveal_received_file(path):
-    os.makedirs(RECEIVED_DIR, exist_ok=True)
+    received_dir = get_received_dir()
+    os.makedirs(received_dir, exist_ok=True)
     try:
         if os.path.isfile(path):
             subprocess.Popen(["explorer.exe", "/select,", os.path.normpath(path)])
         else:
-            os.startfile(RECEIVED_DIR)
+            os.startfile(received_dir)
     except Exception:
         try:
-            os.startfile(RECEIVED_DIR)
+            os.startfile(received_dir)
         except Exception:
             pass
 
@@ -1874,7 +1881,7 @@ def _host_uploads_from_zip(raw):
 class _SrvHandler(http.server.BaseHTTPRequestHandler):
     def setup(self):
         super().setup()
-        self.connection.settimeout(30)
+        self.connection.settimeout(300)
 
     def log_message(self, *a):
         pass  # keep the console quiet
@@ -2434,9 +2441,10 @@ def action_send_file(icon=None, item=None):
 
 
 def open_received_folder(icon=None, item=None):
-    os.makedirs(RECEIVED_DIR, exist_ok=True)
+    received_dir = get_received_dir()
+    os.makedirs(received_dir, exist_ok=True)
     try:
-        os.startfile(RECEIVED_DIR)
+        os.startfile(received_dir)
     except Exception:
         pass
 
@@ -4211,6 +4219,33 @@ def open_settings(icon=None, item=None):
     for value, key in (("light", "light_theme"), ("dark", "dark_theme")):
         ttk.Radiobutton(appearance_controls, text=t(key), value=value, variable=appearance,
                         command=preview_appearance, style="Segment.TRadiobutton").pack(side="left")
+        
+    received_dir_var = tk.StringVar(master=root, value=get_received_dir())
+
+    def browse_received_dir():
+        selected = filedialog.askdirectory(
+            parent=root,
+            title="Select received files folder",
+            initialdir=received_dir_var.get() or RECEIVED_DIR,
+        )
+        if selected:
+            received_dir_var.set(selected)
+
+    ttk.Label(application_box, text="Received files location").grid(
+        row=2, column=0, sticky="w", padx=(0, 14), pady=6
+    )
+    received_dir_controls = ttk.Frame(application_box)
+    received_dir_controls.grid(row=2, column=1, sticky="ew", pady=6)
+    received_dir_controls.grid_columnconfigure(0, weight=1)
+
+    ttk.Entry(received_dir_controls, textvariable=received_dir_var).grid(
+        row=0, column=0, sticky="ew"
+    )
+    ttk.Button(
+        received_dir_controls,
+        text="Browse…",
+        command=browse_received_dir,
+    ).grid(row=0, column=1, padx=(8, 0))
 
     status_box = ttk.LabelFrame(
         connection_tab,
@@ -4398,6 +4433,7 @@ def open_settings(icon=None, item=None):
         values.update({
             "lang": "it" if language.get() == "Italiano" else "en",
             "appearance": appearance.get(),
+            "received_files_dir": received_dir_var.get().strip() or RECEIVED_DIR,
             "mode": mode.get() if mode.get() in ("client", "server") else "client",
             "server_ip": entries["server_ip"].get().strip(),
             "server_port": port,
@@ -4476,6 +4512,23 @@ def open_settings(icon=None, item=None):
         values = pending_connection_values()
         if values is None:
             return
+
+        received_files_dir = os.path.abspath(
+            os.path.expandvars(
+                os.path.expanduser(
+                    str(values.get("received_files_dir") or RECEIVED_DIR)
+                )
+            )
+        )
+        try:
+            os.makedirs(received_files_dir, exist_ok=True)
+        except OSError as exc:
+            msg.config(text=f"Invalid received files location: {exc}")
+            notebook.select(general_page)
+            return
+
+        values["received_files_dir"] = received_files_dir
+
         hotkey_names = ("hotkey_send", "hotkey_receive", "hotkey_history")
         for key in hotkey_names:
             values[key] = entries[key].get().strip().lower() or DEFAULT_CONFIG[key]
